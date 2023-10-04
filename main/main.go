@@ -25,6 +25,7 @@ var (
 )
 
 func main() {
+	flag.Parse()
 	fmt.Println("out: ", *out)
 	fmt.Println("url: ", *url)
 
