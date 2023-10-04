@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"flag"
+	"fmt"
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
@@ -24,6 +25,8 @@ var (
 )
 
 func main() {
+	fmt.Println("out: ", *out)
+	fmt.Println("url: ", *url)
 
 	out, closeFunc, err := getFileWriter(*out, true)
 	if err != nil {
@@ -51,13 +54,12 @@ func main() {
 		panic(err)
 	}
 	opts := *scanner.DefaultScannerOptions()
-	opts.NumWorkers = 1
-	opts.ParallelFetch = 1
+	opts.NumWorkers = 5
+	opts.ParallelFetch = 5
 
 	s := scanner.NewScanner(c, opts)
 
-	ctx, cncl := context.WithTimeout(context.Background(), 240*time.Second)
-	defer cncl()
+	ctx := context.Background()
 
 	nameChan := make(chan string, 1000)
 	done := make(chan bool)
