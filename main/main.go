@@ -51,8 +51,8 @@ func main() {
 		panic(err)
 	}
 	opts := *scanner.DefaultScannerOptions()
-	opts.NumWorkers = 5
-	opts.ParallelFetch = 5
+	opts.NumWorkers = 1
+	opts.ParallelFetch = 1
 
 	s := scanner.NewScanner(c, opts)
 
@@ -91,6 +91,9 @@ func main() {
 		}
 
 	}, func(entry *ct.RawLogEntry) {
+		if entry.Index%10000 == 0 {
+			log.Printf("At %v", entry.Index)
+		}
 		// nop
 	})
 	close(nameChan)
