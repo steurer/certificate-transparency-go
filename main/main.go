@@ -21,6 +21,7 @@ import (
 
 var (
 	out = flag.String("out", "ct_names.zst", "")
+	max = flag.Int64("max", 0, "")
 	url = flag.String("url", "https://ct.cloudflare.com/logs/nimbus2024/", "")
 )
 
@@ -57,6 +58,7 @@ func main() {
 	opts := *scanner.DefaultScannerOptions()
 	opts.NumWorkers = 5
 	opts.ParallelFetch = 5
+	opts.EndIndex = *max
 
 	s := scanner.NewScanner(c, opts)
 
