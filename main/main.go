@@ -56,8 +56,8 @@ func main() {
 		panic(err)
 	}
 	opts := *scanner.DefaultScannerOptions()
-	opts.NumWorkers = 5
-	opts.ParallelFetch = 5
+	opts.NumWorkers = 10
+	opts.ParallelFetch = 10
 	opts.EndIndex = *max
 
 	s := scanner.NewScanner(c, opts)
