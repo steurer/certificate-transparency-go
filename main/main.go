@@ -23,7 +23,7 @@ var (
 	out  = flag.String("out", "ct_names.zst", "")
 	from = flag.Int64("from", 0, "")
 	to   = flag.Int64("to", 0, "")
-	url  = flag.String("url", "https://ct.cloudflare.com/logs/nimbus2024/", "")
+	url  = flag.String("url", "https://ct.googleapis.com/logs/xenon2023/", "")
 )
 
 func main() {
