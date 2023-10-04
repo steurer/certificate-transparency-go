@@ -20,9 +20,10 @@ import (
 )
 
 var (
-	out = flag.String("out", "ct_names.zst", "")
-	max = flag.Int64("max", 0, "")
-	url = flag.String("url", "https://ct.cloudflare.com/logs/nimbus2024/", "")
+	out  = flag.String("out", "ct_names.zst", "")
+	from = flag.Int64("from", 0, "")
+	to   = flag.Int64("to", 0, "")
+	url  = flag.String("url", "https://ct.cloudflare.com/logs/nimbus2024/", "")
 )
 
 func main() {
@@ -58,7 +59,8 @@ func main() {
 	opts := *scanner.DefaultScannerOptions()
 	opts.NumWorkers = 10
 	opts.ParallelFetch = 10
-	opts.EndIndex = *max
+	opts.EndIndex = *to
+	opts.StartIndex = *from
 
 	s := scanner.NewScanner(c, opts)
 
