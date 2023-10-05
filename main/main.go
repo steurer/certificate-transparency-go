@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -29,6 +30,8 @@ var (
 )
 
 func main() {
+	runtime.GOMAXPROCS(20)
+
 	flag.Parse()
 	fmt.Println("out: ", *out)
 	fmt.Println("url: ", *url)
@@ -96,7 +99,7 @@ func main() {
 	log.Printf("Got STH: %v", sth)
 
 	g := errgroup.Group{}
-	g.SetLimit(20)
+	g.SetLimit(2000)
 
 	err = s.Scan(ctx, func(entry *ct.RawLogEntry) {
 		g.Go(func() error {
