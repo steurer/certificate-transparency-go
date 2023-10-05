@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	out  = flag.String("out", "ct_names.zst", "")
-	from = flag.Int64("from", 0, "")
-	to   = flag.Int64("to", 0, "")
-	url  = flag.String("url", "https://ct.googleapis.com/logs/xenon2023/", "")
+	out       = flag.String("out", "ct_names.zst", "")
+	from      = flag.Int64("from", 0, "")
+	to        = flag.Int64("to", 100000, "")
+	url       = flag.String("url", "https://ct.googleapis.com/logs/eu1/xenon2024/", "")
+	noPrecert = flag.Bool("no_precert", true, "")
 )
 
 func main() {
@@ -66,11 +67,18 @@ func main() {
 
 	ctx := context.Background()
 
-	nameChan := make(chan string, 1000)
+	type resultEntry struct {
+		index     int64
+		name      string
+		isPrecert int
+		validTo   int64
+	}
+
+	nameChan := make(chan resultEntry, 1000)
 	done := make(chan bool)
 	go func() {
-		for name := range nameChan {
-			if _, err := out.Write([]byte(name + "\n")); err != nil {
+		for entry := range nameChan {
+			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validTo))); err != nil {
 				panic(err)
 			}
 		}
@@ -78,6 +86,14 @@ func main() {
 	}()
 
 	now := time.Now()
+
+	f := scanner.NewFetcher(c, &opts.FetcherOptions)
+	sth, err := f.Prepare(ctx)
+	if err != nil {
+		panic(err)
+	}
+	log.Printf("Got STH: %v", sth)
+
 	err = s.Scan(ctx, func(entry *ct.RawLogEntry) {
 		if entry.Index%10000 == 0 {
 			log.Printf("At %v", entry.Index)
@@ -94,15 +110,36 @@ func main() {
 		}
 
 		for _, dn := range getDomainNames(parsedEntry) {
-			nameChan <- dn
+			nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validTo: parsedEntry.X509Cert.NotAfter.Unix()}
 		}
 
 	}, func(entry *ct.RawLogEntry) {
 		if entry.Index%10000 == 0 {
 			log.Printf("At %v", entry.Index)
 		}
-		// nop
+
+		if *noPrecert {
+			return
+		}
+
+		parsedEntry, err := entry.ToLogEntry()
+
+		if x509.IsFatal(err) || parsedEntry.Precert == nil || parsedEntry.Precert.TBSCertificate == nil {
+			log.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
+			return
+		}
+
+		if now.After(parsedEntry.Precert.TBSCertificate.NotAfter) {
+			return
+		}
+
+		for _, dn := range getDomainNames(parsedEntry) {
+			nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 1, validTo: parsedEntry.Precert.TBSCertificate.NotAfter.Unix()}
+		}
 	})
+
+	log.Println("Took %v", time.Since(now))
+
 	close(nameChan)
 	<-done
 	if err != nil {
@@ -115,8 +152,17 @@ func main() {
 // specified log
 func getDomainNames(entry *ct.LogEntry) []string {
 	nameMap := make(map[string]any)
-	for _, name := range entry.X509Cert.DNSNames {
-		nameMap[removeWildcard(removeWWW(name))] = nil
+
+	if entry.X509Cert != nil {
+		for _, name := range entry.X509Cert.DNSNames {
+			nameMap[removeWildcard(name)] = nil
+		}
+	}
+
+	if entry.Precert != nil && entry.Precert.TBSCertificate != nil {
+		for _, name := range entry.Precert.TBSCertificate.DNSNames {
+			nameMap[removeWildcard(name)] = nil
+		}
 	}
 
 	names := make([]string, 0, len(nameMap))
@@ -138,16 +184,6 @@ func removeWildcard(dn string) string {
 		return dn[2:]
 	}
 	return dn
-}
-
-// Prints out a short bit of info about |precert|, found at |index| in the specified log
-func logPrecertInfo(entry *ct.RawLogEntry) {
-	parsedEntry, err := entry.ToLogEntry()
-	if x509.IsFatal(err) || parsedEntry.Precert == nil {
-		log.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
-	} else {
-		log.Printf("Process precert at index %d: CN: '%s' Issuer: %s", entry.Index, parsedEntry.Precert.TBSCertificate.Subject.CommonName, parsedEntry.Precert.TBSCertificate.Issuer.CommonName)
-	}
 }
 
 func getFileWriter(path string, zip bool) (io.Writer, func() error, error) {
