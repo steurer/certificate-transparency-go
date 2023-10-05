@@ -11,6 +11,7 @@ import (
 	"github.com/google/certificate-transparency-go/scanner"
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/klauspost/compress/zstd"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"log"
 	"net/http"
@@ -94,8 +95,11 @@ func main() {
 	}
 	log.Printf("Got STH: %v", sth)
 
+	g := errgroup.Group{}
+	g.SetLimit(20)
+
 	err = s.Scan(ctx, func(entry *ct.RawLogEntry) {
-		go func() {
+		g.Go(func() error {
 			if entry.Index%10000 == 0 {
 				log.Printf("At %v", entry.Index)
 			}
@@ -103,43 +107,49 @@ func main() {
 			parsedEntry, err := entry.ToLogEntry()
 			if x509.IsFatal(err) || parsedEntry.X509Cert == nil {
 				log.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
-				return
+				return nil
 			}
 
 			if now.After(parsedEntry.X509Cert.NotAfter) {
-				return
+				return nil
 			}
 
 			for _, dn := range getDomainNames(parsedEntry) {
 				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validTo: parsedEntry.X509Cert.NotAfter.Unix()}
 			}
-		}()
+
+			return nil
+		})
 	}, func(entry *ct.RawLogEntry) {
-		if entry.Index%10000 == 0 {
-			log.Printf("At %v", entry.Index)
-		}
+		g.Go(func() error {
+			if entry.Index%10000 == 0 {
+				log.Printf("At %v", entry.Index)
+			}
 
-		if *noPrecert {
-			return
-		}
+			if *noPrecert {
+				return nil
+			}
 
-		parsedEntry, err := entry.ToLogEntry()
+			parsedEntry, err := entry.ToLogEntry()
 
-		if x509.IsFatal(err) || parsedEntry.Precert == nil || parsedEntry.Precert.TBSCertificate == nil {
-			log.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
-			return
-		}
+			if x509.IsFatal(err) || parsedEntry.Precert == nil || parsedEntry.Precert.TBSCertificate == nil {
+				log.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
+				return nil
+			}
 
-		if now.After(parsedEntry.Precert.TBSCertificate.NotAfter) {
-			return
-		}
+			if now.After(parsedEntry.Precert.TBSCertificate.NotAfter) {
+				return nil
+			}
 
-		for _, dn := range getDomainNames(parsedEntry) {
-			nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 1, validTo: parsedEntry.Precert.TBSCertificate.NotAfter.Unix()}
-		}
+			for _, dn := range getDomainNames(parsedEntry) {
+				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 1, validTo: parsedEntry.Precert.TBSCertificate.NotAfter.Unix()}
+			}
+
+			return nil
+		})
 	})
 
-	log.Println("Took %v", time.Since(now))
+	log.Println("Took ", time.Since(now))
 
 	close(nameChan)
 	<-done
