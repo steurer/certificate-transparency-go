@@ -31,7 +31,7 @@ var (
 func main() {
 	runtime.GOMAXPROCS(20)
 	flag.Parse()
-	
+
 	if out == nil || *out == "" {
 		panic("Please provide 'out'")
 	}
@@ -80,13 +80,14 @@ func main() {
 		name      string
 		isPrecert int
 		validTo   int64
+		validFrom int64
 	}
 
 	nameChan := make(chan resultEntry, 1000)
 	done := make(chan bool)
 	go func() {
 		for entry := range nameChan {
-			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validTo))); err != nil {
+			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo))); err != nil {
 				panic(err)
 			}
 		}
@@ -122,7 +123,7 @@ func main() {
 			}
 
 			for _, dn := range getDomainNames(parsedEntry) {
-				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validTo: parsedEntry.X509Cert.NotAfter.Unix()}
+				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(), validTo: parsedEntry.X509Cert.NotAfter.Unix()}
 			}
 
 			return nil
@@ -149,7 +150,7 @@ func main() {
 			}
 
 			for _, dn := range getDomainNames(parsedEntry) {
-				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 1, validTo: parsedEntry.Precert.TBSCertificate.NotAfter.Unix()}
+				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 1, validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(), validTo: parsedEntry.Precert.TBSCertificate.NotAfter.Unix()}
 			}
 
 			return nil
