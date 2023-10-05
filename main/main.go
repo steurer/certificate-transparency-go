@@ -30,7 +30,8 @@ var (
 
 func main() {
 	runtime.GOMAXPROCS(20)
-
+	flag.Parse()
+	
 	if out == nil || *out == "" {
 		panic("Please provide 'out'")
 	}
@@ -38,7 +39,6 @@ func main() {
 		panic("Please provide 'url'")
 	}
 
-	flag.Parse()
 	fmt.Println("out: ", *out)
 	fmt.Println("url: ", *url)
 
