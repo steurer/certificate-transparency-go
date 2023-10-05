@@ -95,24 +95,25 @@ func main() {
 	log.Printf("Got STH: %v", sth)
 
 	err = s.Scan(ctx, func(entry *ct.RawLogEntry) {
-		if entry.Index%10000 == 0 {
-			log.Printf("At %v", entry.Index)
-		}
+		go func() {
+			if entry.Index%10000 == 0 {
+				log.Printf("At %v", entry.Index)
+			}
 
-		parsedEntry, err := entry.ToLogEntry()
-		if x509.IsFatal(err) || parsedEntry.X509Cert == nil {
-			log.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
-			return
-		}
+			parsedEntry, err := entry.ToLogEntry()
+			if x509.IsFatal(err) || parsedEntry.X509Cert == nil {
+				log.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
+				return
+			}
 
-		if now.After(parsedEntry.X509Cert.NotAfter) {
-			return
-		}
+			if now.After(parsedEntry.X509Cert.NotAfter) {
+				return
+			}
 
-		for _, dn := range getDomainNames(parsedEntry) {
-			nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validTo: parsedEntry.X509Cert.NotAfter.Unix()}
-		}
-
+			for _, dn := range getDomainNames(parsedEntry) {
+				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validTo: parsedEntry.X509Cert.NotAfter.Unix()}
+			}
+		}()
 	}, func(entry *ct.RawLogEntry) {
 		if entry.Index%10000 == 0 {
 			log.Printf("At %v", entry.Index)
