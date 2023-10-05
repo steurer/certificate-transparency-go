@@ -17,26 +17,32 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 )
 
 var (
-	out       = flag.String("out", "ct_names.zst", "")
+	out       = flag.String("out", "", "")
 	from      = flag.Int64("from", 0, "")
-	to        = flag.Int64("to", 100000, "")
-	url       = flag.String("url", "https://ct.googleapis.com/logs/eu1/xenon2024/", "")
-	noPrecert = flag.Bool("no_precert", true, "")
+	to        = flag.Int64("to", 0, "")
+	url       = flag.String("url", "", "")
+	noPrecert = flag.Bool("no_precert", false, "")
 )
 
 func main() {
 	runtime.GOMAXPROCS(20)
 
+	if out == nil || *out == "" {
+		panic("Please provide 'out'")
+	}
+	if url == nil || *url == "" {
+		panic("Please provide 'url'")
+	}
+
 	flag.Parse()
 	fmt.Println("out: ", *out)
 	fmt.Println("url: ", *url)
 
-	out, closeFunc, err := getFileWriter(*out, true)
+	out, closeFunc, err := getFileWriter(*out, zstd.SpeedBetterCompression)
 	if err != nil {
 		panic(err)
 	}
@@ -55,8 +61,6 @@ func main() {
 		},
 	}
 
-	//
-	// https://ct.googleapis.com/logs/solera2023/
 	c, err := client.New(*url, hc, jsonclient.Options{UserAgent: "ct-go-sctscan/1.0"})
 	if err != nil {
 		panic(err)
@@ -169,13 +173,13 @@ func getDomainNames(entry *ct.LogEntry) []string {
 
 	if entry.X509Cert != nil {
 		for _, name := range entry.X509Cert.DNSNames {
-			nameMap[removeWildcard(name)] = nil
+			nameMap[name] = nil
 		}
 	}
 
 	if entry.Precert != nil && entry.Precert.TBSCertificate != nil {
 		for _, name := range entry.Precert.TBSCertificate.DNSNames {
-			nameMap[removeWildcard(name)] = nil
+			nameMap[name] = nil
 		}
 	}
 
@@ -186,21 +190,7 @@ func getDomainNames(entry *ct.LogEntry) []string {
 	return names
 }
 
-func removeWWW(dn string) string {
-	if strings.HasPrefix(dn, "www.") {
-		return dn[4:]
-	}
-	return dn
-}
-
-func removeWildcard(dn string) string {
-	if strings.HasPrefix(dn, "*.") {
-		return dn[2:]
-	}
-	return dn
-}
-
-func getFileWriter(path string, zip bool) (io.Writer, func() error, error) {
+func getFileWriter(path string, level zstd.EncoderLevel) (io.Writer, func() error, error) {
 	outFile, err := os.Create(path)
 	if err != nil {
 		return nil, nil, err
@@ -208,14 +198,7 @@ func getFileWriter(path string, zip bool) (io.Writer, func() error, error) {
 
 	bufWriter := bufio.NewWriter(outFile)
 
-	if !zip {
-		return bufWriter, func() error {
-			bufWriter.Flush()
-			return outFile.Close()
-		}, nil
-	}
-
-	zw, err := zstd.NewWriter(bufWriter)
+	zw, err := zstd.NewWriter(bufWriter, zstd.WithEncoderLevel(level))
 	if err != nil {
 		outFile.Close()
 		return nil, nil, err
