@@ -159,6 +159,7 @@ func main() {
 
 	log.Println("Took ", time.Since(now))
 
+	g.Wait()
 	close(nameChan)
 	<-done
 	if err != nil {
