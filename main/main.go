@@ -123,7 +123,7 @@ func main() {
 			}
 
 			for _, dn := range getDomainNames(parsedEntry) {
-				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(), validTo: parsedEntry.X509Cert.NotAfter.Unix()}
+				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validFrom: parsedEntry.X509Cert.NotBefore.Unix(), validTo: parsedEntry.X509Cert.NotAfter.Unix()}
 			}
 
 			return nil
