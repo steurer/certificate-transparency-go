@@ -3,8 +3,18 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/sha256" //new import
+	"encoding/hex"  //new import
 	"flag"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"runtime"
+	"strings" //new import
+	"time"
+
 	ct "github.com/google/certificate-transparency-go"
 	"github.com/google/certificate-transparency-go/client"
 	"github.com/google/certificate-transparency-go/jsonclient"
@@ -12,12 +22,6 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/sync/errgroup"
-	"io"
-	"log"
-	"net/http"
-	"os"
-	"runtime"
-	"time"
 )
 
 var (
@@ -27,6 +31,8 @@ var (
 	url       = flag.String("url", "", "")
 	noPrecert = flag.Bool("no_precert", false, "")
 )
+
+//const maxEntriesPerFile = 10000000
 
 func main() {
 	runtime.GOMAXPROCS(20)
@@ -42,11 +48,11 @@ func main() {
 	fmt.Println("out: ", *out)
 	fmt.Println("url: ", *url)
 
-	out, closeFunc, err := getFileWriter(*out, zstd.SpeedBetterCompression)
-	if err != nil {
-		panic(err)
-	}
-	defer closeFunc()
+	// out, closeFunc, err := getFileWriter(*out, zstd.SpeedBetterCompression)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer closeFunc()
 
 	hc := &http.Client{
 		Timeout: 30 * time.Second,
@@ -76,25 +82,72 @@ func main() {
 	ctx := context.Background()
 
 	type resultEntry struct {
+		hash      string //added
 		index     int64
 		name      string
 		isPrecert int
-		validTo   int64
 		validFrom int64
+		validTo   int64
 	}
+
+	// Define a variable to keep track of the number of entries in the current output file
+	entriesWritten := 0
+	maxEntriesPerFile := 10_000_000 // 10 million entries
 
 	nameChan := make(chan resultEntry, 1000)
 	done := make(chan bool)
+
+	// Define a function to create a new output file
+	createNewOutputFile := func(fileNum int) (io.Writer, func() error, error) {
+		filePath := fmt.Sprintf("%s-%d.csv.zst", *out, fileNum)
+		return getFileWriter(filePath, zstd.SpeedBetterCompression)
+	}
+
+	out, closeFunc, err := createNewOutputFile(1)
+	if err != nil {
+		panic(err)
+	}
+	defer closeFunc()
+
 	go func() {
+		fileNum := 1
 		for entry := range nameChan {
-			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo))); err != nil {
+			if entriesWritten >= maxEntriesPerFile {
+				// Close the current file and create a new one
+				closeFunc()
+				fileNum++
+				out, closeFunc, err = createNewOutputFile(fileNum)
+				if err != nil {
+					panic(err)
+				}
+				entriesWritten = 0
+			}
+
+			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v\n", entry.hash, entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.validTo))); err != nil {
 				panic(err)
 			}
+			entriesWritten++
 		}
+
+		// Close the last file
+		closeFunc()
 		done <- true
 	}()
 
-	now := time.Now()
+	// nameChan := make(chan resultEntry, 1000)
+	// done := make(chan bool)
+	// //modified here to ptint hash id as well
+	// go func() {
+	// 	for entry := range nameChan {
+	// 		if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v\n", entry.hash, entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.validTo))); err != nil {
+	// 			panic(err)
+	// 		}
+	// 	}
+	// 	done <- true
+	// }()
+
+	// removed previous now and added a new
+	now := time.Date(2017, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	f := scanner.NewFetcher(c, &opts.FetcherOptions)
 	sth, err := f.Prepare(ctx)
@@ -117,13 +170,17 @@ func main() {
 				log.Printf("Process cert at index %d: <unparsed: %v>", entry.Index, err)
 				return nil
 			}
-
-			if now.After(parsedEntry.X509Cert.NotAfter) {
-				return nil
-			}
-
-			for _, dn := range getDomainNames(parsedEntry) {
-				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 0, validFrom: parsedEntry.X509Cert.NotBefore.Unix(), validTo: parsedEntry.X509Cert.NotAfter.Unix()}
+			// added logic - from 2017
+			if parsedEntry.X509Cert.NotBefore.After(now) {
+				hash, names := getDomainNames(parsedEntry)
+				nameChan <- resultEntry{
+					hash:      hash,
+					name:      strings.Join(names, ","), // Join domain names with a comma
+					index:     entry.Index,
+					isPrecert: 0,
+					validFrom: parsedEntry.X509Cert.NotBefore.Unix(),
+					validTo:   parsedEntry.X509Cert.NotAfter.Unix(),
+				}
 			}
 
 			return nil
@@ -144,14 +201,19 @@ func main() {
 				log.Printf("Process precert at index %d: <unparsed: %v>", entry.Index, err)
 				return nil
 			}
-
-			if now.After(parsedEntry.Precert.TBSCertificate.NotAfter) {
-				return nil
+			// added logic - from 2017
+			if parsedEntry.Precert.TBSCertificate.NotBefore.After(now) {
+				hash, names := getDomainNames(parsedEntry)
+				nameChan <- resultEntry{
+					hash:      hash,
+					name:      strings.Join(names, ","), // Join domain names with a comma
+					index:     entry.Index,
+					isPrecert: 1,
+					validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(),
+					validTo:   parsedEntry.Precert.TBSCertificate.NotAfter.Unix(),
+				}
 			}
-
-			for _, dn := range getDomainNames(parsedEntry) {
-				nameChan <- resultEntry{name: dn, index: entry.Index, isPrecert: 1, validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(), validTo: parsedEntry.Precert.TBSCertificate.NotAfter.Unix()}
-			}
+			// Removed the filtering for unexpired certs
 
 			return nil
 		})
@@ -165,31 +227,36 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 }
 
 // Prints out a short bit of info about |cert|, found at |index| in the
 // specified log
-func getDomainNames(entry *ct.LogEntry) []string {
-	nameMap := make(map[string]any)
+// modified to include hashing
+func getDomainNames(entry *ct.LogEntry) (hash string, names []string) {
+	nameMap := make(map[string]struct{})
 
 	if entry.X509Cert != nil {
 		for _, name := range entry.X509Cert.DNSNames {
-			nameMap[name] = nil
+			nameMap[name] = struct{}{}
 		}
 	}
 
 	if entry.Precert != nil && entry.Precert.TBSCertificate != nil {
 		for _, name := range entry.Precert.TBSCertificate.DNSNames {
-			nameMap[name] = nil
+			nameMap[name] = struct{}{}
 		}
 	}
 
-	names := make([]string, 0, len(nameMap))
+	names = make([]string, 0, len(nameMap))
 	for name := range nameMap {
 		names = append(names, name)
 	}
-	return names
+
+	// Create a hash over the domain names
+	hashBytes := sha256.Sum256([]byte(strings.Join(names, ",")))
+	hash = hex.EncodeToString(hashBytes[:])
+
+	return hash, names
 }
 
 func getFileWriter(path string, level zstd.EncoderLevel) (io.Writer, func() error, error) {
