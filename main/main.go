@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"    //new import
 	"strings" //new import
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/google/certificate-transparency-go/x509"
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -30,9 +32,8 @@ var (
 	to        = flag.Int64("to", 0, "")
 	url       = flag.String("url", "", "")
 	noPrecert = flag.Bool("no_precert", false, "")
+	maxen     = flag.Int("maxen", 10000000, "")
 )
-
-//const maxEntriesPerFile = 10000000
 
 func main() {
 	runtime.GOMAXPROCS(20)
@@ -47,12 +48,6 @@ func main() {
 
 	fmt.Println("out: ", *out)
 	fmt.Println("url: ", *url)
-
-	// out, closeFunc, err := getFileWriter(*out, zstd.SpeedBetterCompression)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer closeFunc()
 
 	hc := &http.Client{
 		Timeout: 30 * time.Second,
@@ -92,7 +87,7 @@ func main() {
 
 	// Define a variable to keep track of the number of entries in the current output file
 	entriesWritten := 0
-	maxEntriesPerFile := 10_000_000 // 10 million entries
+	maxEntriesPerFile := *maxen
 
 	nameChan := make(chan resultEntry, 1000)
 	done := make(chan bool)
@@ -107,7 +102,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer closeFunc()
 
 	go func() {
 		fileNum := 1
@@ -133,18 +127,6 @@ func main() {
 		closeFunc()
 		done <- true
 	}()
-
-	// nameChan := make(chan resultEntry, 1000)
-	// done := make(chan bool)
-	// //modified here to ptint hash id as well
-	// go func() {
-	// 	for entry := range nameChan {
-	// 		if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v\n", entry.hash, entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.validTo))); err != nil {
-	// 			panic(err)
-	// 		}
-	// 	}
-	// 	done <- true
-	// }()
 
 	// removed previous now and added a new
 	now := time.Date(2017, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -175,7 +157,7 @@ func main() {
 				hash, names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
 					hash:      hash,
-					name:      strings.Join(names, ","), // Join domain names with a comma
+					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
 					isPrecert: 0,
 					validFrom: parsedEntry.X509Cert.NotBefore.Unix(),
@@ -206,7 +188,7 @@ func main() {
 				hash, names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
 					hash:      hash,
-					name:      strings.Join(names, ","), // Join domain names with a comma
+					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
 					isPrecert: 1,
 					validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(),
@@ -231,28 +213,34 @@ func main() {
 
 // Prints out a short bit of info about |cert|, found at |index| in the
 // specified log
-// modified to include hashing
+// modified to include hashing, sorting and normalising domain names
+
 func getDomainNames(entry *ct.LogEntry) (hash string, names []string) {
 	nameMap := make(map[string]struct{})
 
 	if entry.X509Cert != nil {
 		for _, name := range entry.X509Cert.DNSNames {
-			nameMap[name] = struct{}{}
+			// Normalize the domain name using NFKC (Compatibility Composition)
+			normalizedName := norm.NFKC.String(name)
+			nameMap[normalizedName] = struct{}{}
 		}
 	}
 
 	if entry.Precert != nil && entry.Precert.TBSCertificate != nil {
 		for _, name := range entry.Precert.TBSCertificate.DNSNames {
-			nameMap[name] = struct{}{}
+			// Normalize the domain name using NFKC (Compatibility Composition)
+			normalizedName := norm.NFKC.String(name)
+			nameMap[normalizedName] = struct{}{}
 		}
 	}
 
-	names = make([]string, 0, len(nameMap))
+	// Sort domain names alphabetically
 	for name := range nameMap {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 
-	// Create a hash over the domain names
+	// Create a hash over the sorted and normalized domain names
 	hashBytes := sha256.Sum256([]byte(strings.Join(names, ",")))
 	hash = hex.EncodeToString(hashBytes[:])
 
