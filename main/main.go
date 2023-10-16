@@ -130,6 +130,7 @@ func main() {
 
 	// removed previous now and added a new
 	now := time.Date(2017, time.January, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Now()
 
 	f := scanner.NewFetcher(c, &opts.FetcherOptions)
 	sth, err := f.Prepare(ctx)
@@ -201,7 +202,7 @@ func main() {
 		})
 	})
 
-	log.Println("Took ", time.Since(now))
+	log.Println("Took ", time.Since(start))
 
 	g.Wait()
 	close(nameChan)
