@@ -3,8 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/sha256" //new import
-	"encoding/hex"  //new import
 	"flag"
 	"fmt"
 	"io"
@@ -77,7 +75,6 @@ func main() {
 	ctx := context.Background()
 
 	type resultEntry struct {
-		hash      string //added
 		index     int64
 		name      string
 		isPrecert int
@@ -117,7 +114,7 @@ func main() {
 				entriesWritten = 0
 			}
 
-			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v\n", entry.hash, entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.validTo))); err != nil {
+			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo))); err != nil {
 				panic(err)
 			}
 			entriesWritten++
@@ -155,9 +152,8 @@ func main() {
 			}
 			// added logic - from 2017
 			if parsedEntry.X509Cert.NotBefore.After(now) {
-				hash, names := getDomainNames(parsedEntry)
+				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
-					hash:      hash,
 					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
 					isPrecert: 0,
@@ -186,9 +182,8 @@ func main() {
 			}
 			// added logic - from 2017
 			if parsedEntry.Precert.TBSCertificate.NotBefore.After(now) {
-				hash, names := getDomainNames(parsedEntry)
+				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
-					hash:      hash,
 					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
 					isPrecert: 1,
@@ -216,7 +211,7 @@ func main() {
 // specified log
 // modified to include hashing, sorting and normalising domain names
 
-func getDomainNames(entry *ct.LogEntry) (hash string, names []string) {
+func getDomainNames(entry *ct.LogEntry) (names []string) {
 	nameMap := make(map[string]struct{})
 
 	if entry.X509Cert != nil {
@@ -241,11 +236,7 @@ func getDomainNames(entry *ct.LogEntry) (hash string, names []string) {
 	}
 	sort.Strings(names)
 
-	// Create a hash over the sorted and normalized domain names
-	hashBytes := sha256.Sum256([]byte(strings.Join(names, ",")))
-	hash = hex.EncodeToString(hashBytes[:])
-
-	return hash, names
+	return names
 }
 
 func getFileWriter(path string, level zstd.EncoderLevel) (io.Writer, func() error, error) {
