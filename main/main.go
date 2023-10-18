@@ -3,8 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/sha256" //new import
-	"encoding/hex"  //new import
 	"flag"
 	"fmt"
 	"io"
@@ -77,12 +75,12 @@ func main() {
 	ctx := context.Background()
 
 	type resultEntry struct {
-		hash      string //added
 		index     int64
 		name      string
 		isPrecert int
 		validFrom int64
 		validTo   int64
+		leafTime  int64
 	}
 
 	// Define a variable to keep track of the number of entries in the current output file
@@ -94,7 +92,7 @@ func main() {
 
 	// Define a function to create a new output file
 	createNewOutputFile := func(fileNum int) (io.Writer, func() error, error) {
-		filePath := fmt.Sprintf("%s-%d.csv.zst", *out, fileNum)
+		filePath := fmt.Sprintf("%s_%d.csv.zst", *out, fileNum)
 		return getFileWriter(filePath, zstd.SpeedBetterCompression)
 	}
 
@@ -117,7 +115,7 @@ func main() {
 				entriesWritten = 0
 			}
 
-			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v\n", entry.hash, entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.validTo))); err != nil {
+			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.leafTime))); err != nil {
 				panic(err)
 			}
 			entriesWritten++
@@ -155,14 +153,14 @@ func main() {
 			}
 			// added logic - from 2017
 			if parsedEntry.X509Cert.NotBefore.After(now) {
-				hash, names := getDomainNames(parsedEntry)
+				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
-					hash:      hash,
 					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
 					isPrecert: 0,
 					validFrom: parsedEntry.X509Cert.NotBefore.Unix(),
 					validTo:   parsedEntry.X509Cert.NotAfter.Unix(),
+					leafTime:  int64(parsedEntry.Leaf.TimestampedEntry.Timestamp) / 1000,
 				}
 			}
 
@@ -186,14 +184,14 @@ func main() {
 			}
 			// added logic - from 2017
 			if parsedEntry.Precert.TBSCertificate.NotBefore.After(now) {
-				hash, names := getDomainNames(parsedEntry)
+				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
-					hash:      hash,
 					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
 					isPrecert: 1,
 					validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(),
 					validTo:   parsedEntry.Precert.TBSCertificate.NotAfter.Unix(),
+					leafTime:  int64(parsedEntry.Leaf.TimestampedEntry.Timestamp) / 1000,
 				}
 			}
 			// Removed the filtering for unexpired certs
@@ -216,7 +214,7 @@ func main() {
 // specified log
 // modified to include hashing, sorting and normalising domain names
 
-func getDomainNames(entry *ct.LogEntry) (hash string, names []string) {
+func getDomainNames(entry *ct.LogEntry) (names []string) {
 	nameMap := make(map[string]struct{})
 
 	if entry.X509Cert != nil {
@@ -241,11 +239,7 @@ func getDomainNames(entry *ct.LogEntry) (hash string, names []string) {
 	}
 	sort.Strings(names)
 
-	// Create a hash over the sorted and normalized domain names
-	hashBytes := sha256.Sum256([]byte(strings.Join(names, ",")))
-	hash = hex.EncodeToString(hashBytes[:])
-
-	return hash, names
+	return names
 }
 
 func getFileWriter(path string, level zstd.EncoderLevel) (io.Writer, func() error, error) {
