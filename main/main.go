@@ -76,12 +76,12 @@ func main() {
 
 	type resultEntry struct {
 		index     int64
+		cname     string
 		name      string
 		isPrecert int
 		validFrom int64
 		validTo   int64
 		leafTime  int64
-		cname     string
 	}
 
 	// Define a variable to keep track of the number of entries in the current output file
@@ -156,14 +156,13 @@ func main() {
 			if parsedEntry.X509Cert.NotBefore.After(now) {
 				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
-					index:     entry.Index,
-					name:      strings.Join(names, ";"),
+					name:      strings.Join(names, ";"), // Join domain names with a comma
 					cname:     parsedEntry.X509Cert.Subject.CommonName,
+					index:     entry.Index,
 					isPrecert: 0,
 					validFrom: parsedEntry.X509Cert.NotBefore.Unix(),
 					validTo:   parsedEntry.X509Cert.NotAfter.Unix(),
-					leafTime:  int64(parsedEntry.Leaf.TimestampedEntry.Timestamp) / 1000,
-				}
+					leafTime:  int64(parsedEntry.Leaf.TimestampedEntry.Timestamp) / 1000}
 			}
 
 			return nil
@@ -189,8 +188,8 @@ func main() {
 				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
 					name:      strings.Join(names, ";"), // Join domain names with a comma
+					cname:     parsedEntry.Precert.TBSCertificate.Subject.CommonName,
 					index:     entry.Index,
-					cname:     parsedEntry.X509Cert.Subject.CommonName,
 					isPrecert: 1,
 					validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(),
 					validTo:   parsedEntry.Precert.TBSCertificate.NotAfter.Unix(),
