@@ -81,6 +81,7 @@ func main() {
 		validFrom int64
 		validTo   int64
 		leafTime  int64
+		cname     string
 	}
 
 	// Define a variable to keep track of the number of entries in the current output file
@@ -115,7 +116,7 @@ func main() {
 				entriesWritten = 0
 			}
 
-			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v\n", entry.index, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.leafTime))); err != nil {
+			if _, err := out.Write([]byte(fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v\n", entry.index, entry.cname, entry.name, entry.isPrecert, entry.validFrom, entry.validTo, entry.leafTime))); err != nil {
 				panic(err)
 			}
 			entriesWritten++
@@ -155,8 +156,9 @@ func main() {
 			if parsedEntry.X509Cert.NotBefore.After(now) {
 				names := getDomainNames(parsedEntry)
 				nameChan <- resultEntry{
-					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
+					name:      strings.Join(names, ";"),
+					cname:     parsedEntry.X509Cert.Subject.CommonName,
 					isPrecert: 0,
 					validFrom: parsedEntry.X509Cert.NotBefore.Unix(),
 					validTo:   parsedEntry.X509Cert.NotAfter.Unix(),
@@ -188,6 +190,7 @@ func main() {
 				nameChan <- resultEntry{
 					name:      strings.Join(names, ";"), // Join domain names with a comma
 					index:     entry.Index,
+					cname:     parsedEntry.X509Cert.Subject.CommonName,
 					isPrecert: 1,
 					validFrom: parsedEntry.Precert.TBSCertificate.NotBefore.Unix(),
 					validTo:   parsedEntry.Precert.TBSCertificate.NotAfter.Unix(),
