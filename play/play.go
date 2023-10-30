@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +101,6 @@ func main() {
 		}
 	}
 
-	//
 	err := filepath.Walk(*inDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("Error scanning directory: %v", err)
@@ -125,7 +125,7 @@ func main() {
 func hashBucket(name string) int {
 	hashBytes := md5.Sum([]byte(name))
 	hash := int(binary.LittleEndian.Uint64(hashBytes[:8]))
-	return hash % 128
+	return int(math.Abs(float64(hash % 128)))
 }
 
 func logError(errMsg string, outDir string) {
