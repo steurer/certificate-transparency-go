@@ -67,6 +67,10 @@ func main() {
 
 		scanner := bufio.NewScanner(reader)
 
+		// Increase the buffer size to handle larger tokens
+		buf := make([]byte, 2048) // Adjust the buffer size as needed
+		scanner.Buffer(buf, bufio.MaxScanTokenSize)
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			parts := strings.Split(line, ",")
