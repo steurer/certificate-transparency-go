@@ -154,7 +154,7 @@ func processCSVFile(filename string, dnsNameMap map[string]struct {
 func createOutputFile(outDir string, fileNumber int) (*os.File, error) {
 	filename := fmt.Sprintf("output_%d.csv", fileNumber)
 	outFilePath := filepath.Join(outDir, filename)
-	outFile, err := os.Create(outFilePath)
+	outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
 	}
